@@ -15,7 +15,6 @@ from langgraph.prebuilt import ToolNode, tools_condition
 import os
 from dotenv import load_dotenv
 from langgraph.checkpoint.memory import MemorySaver
-from transformers import pipeline
 
 # Load environment variables
 load_dotenv()
@@ -108,7 +107,7 @@ if __name__ == '__main__':
     tools = [pdf_tool, arxiv_tool, wiki_tool]
 
     # Initialize the ChatGroq model with tools
-    llm = ChatGroq(groq_api_key=os.getenv('groq_api_key'), model_name="Gemma2-9b-It")
+    llm = ChatGroq(groq_api_key=os.getenv('groq_api_key'), model_name="llama3-8b-8192")
     llm_with_tools = llm.bind_tools(tools)
 
     # Define chatbot function
@@ -131,21 +130,6 @@ if __name__ == '__main__':
     if "input_submitted" not in st.session_state:
         st.session_state["input_submitted"] = False
 
-    # Set up a summarization pipeline for post-processing responses
-    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-
-    # Function to clean and summarize chatbot responses
-    def clean_and_summarize_response(responses):
-        # Combine responses into one text
-        combined_response = " ".join([resp["messages"][-1].content for resp in responses])
-        
-        # Summarize if response is long, otherwise return directly
-        if len(combined_response) > 500:
-            summary = summarizer(combined_response, max_length=100, min_length=30, do_sample=False)[0]['summary_text']
-            return summary
-        else:
-            return combined_response.strip()
-
     # Streamlit layout for conversation UI
     st.title("AI Assistant Chatbot")
 
@@ -167,20 +151,21 @@ if __name__ == '__main__':
     if st.button("Send"):
         if user_input:
             st.session_state["messages"].append(("user", user_input))
-            # Display a spinner while processing
-            with st.spinner("Processing..."):
-                try:
-                    # Stream messages through the graph and get responses
-                    events = graph.stream({"messages": st.session_state["messages"]}, {"configurable": {"thread_id": "1"}}, stream_mode="values")
+            # Stream messages through the graph and get responses
+            events = graph.stream({"messages": st.session_state["messages"]}, {"configurable": {"thread_id": "1"}}, stream_mode="values")
 
-                    # Clean and summarize the response
-                    user_friendly_response = clean_and_summarize_response(events)
+            # Collect and combine responses
+            combined_response = ""
+            for event in events:
+                response = event["messages"][-1].content
+                print(f'event: {event}')
+                print(f"response: {response}")
+                if response.strip():
+                    combined_response += response + " "
 
-                    # Append the response to the conversation
-                    if user_friendly_response:
-                        st.session_state["messages"].append(("assistant", user_friendly_response))
-                except Exception as e:
-                    st.error(f"An error occurred: {str(e)}")
+            # Append the response to the conversation
+            if combined_response.strip():
+                st.session_state["messages"].append(("assistant", combined_response.strip()))
 
     # Clear input after submission
     if st.session_state.get("input_submitted"):
