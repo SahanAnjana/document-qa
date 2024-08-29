@@ -1,6 +1,6 @@
 .streamlit/secrets.toml
 
-app_groq.py
+# app_groq.py
 result.json
 # Byte-compiled / optimized / DLL files
 __pycache__/
