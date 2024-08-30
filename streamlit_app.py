@@ -84,7 +84,7 @@ if __name__ == '__main__':
     # Initialize the embedding model
     embedding_model = HuggingFaceEmbeddings(
         model_name="thenlper/gte-small",
-        model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
+        model_kwargs={"device": "cpu"},
         encode_kwargs={"normalize_embeddings": True},
     )
 
