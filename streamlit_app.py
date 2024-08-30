@@ -113,7 +113,6 @@ if __name__ == '__main__':
             docs = loader.load()
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=20)
             documents = text_splitter.split_documents(docs)
-            all_documents.append(uploaded_file.name)
             all_documents.extend(documents)
 
         # Create FAISS database from all combined documents
@@ -122,7 +121,8 @@ if __name__ == '__main__':
         pdf_tool = create_retriever_tool(
             retriever,
             "pdf_search",
-            "Search for information about proposal of my research project. For any questions about my research project, you must use this tool!"
+            "Search for information about the research proposal, papers, or topics related to the user's project. "
+            "Focus on guiding the user in their research tasks."
         )
         tools = [pdf_tool, arxiv_tool, wiki_tool]
     else:
@@ -136,7 +136,12 @@ if __name__ == '__main__':
 
     # Define chatbot function
     def chatbot(state: State):
-        return {"messages": [llm_with_tools.invoke(state["messages"])]}
+        system_prompt = (
+            "You are an AI research supervisor. Your role is to provide guidance on research methodologies, "
+            "offer suggestions for literature review, assist in formulating research questions, and provide feedback "
+            "on academic papers. Focus solely on supervising the research process, and avoid unrelated topics."
+        )
+        return {"messages": [llm_with_tools.invoke(state["messages"],system_prompt=system_prompt)]}
 
     # Build the state graph
     graph_builder.add_node("chatbot", chatbot)
