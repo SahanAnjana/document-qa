@@ -35,7 +35,7 @@ st.markdown(
     """
     <style>
     .user-message {
-        background-color: #d1e7dd;
+        background-color: #1F2060;
         padding: 10px;
         border-radius: 10px;
         margin: 5px;
@@ -43,7 +43,7 @@ st.markdown(
         align-self: flex-start;
     }
     .assistant-message {
-        background-color: #f8d7da;
+        background-color: #2B601F;
         padding: 10px;
         border-radius: 10px;
         margin: 5px;
@@ -80,7 +80,6 @@ if __name__ == '__main__':
     # Initialize the embedding model
     embedding_model = HuggingFaceEmbeddings(
         model_name="thenlper/gte-small",
-        multi_process=True,
         model_kwargs={"device": "cpu"},
         encode_kwargs={"normalize_embeddings": True},
     )
@@ -95,7 +94,7 @@ if __name__ == '__main__':
     pdf_tool = create_retriever_tool(
         retriever,
         "pdf_search",
-        "Search for information about my research project. For any questions about my research project, you must use this tool!"
+        "Search for information about proposal of my research project. For any questions about my research project, you must use this tool!"
     )
 
     api_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=200)
@@ -141,33 +140,27 @@ if __name__ == '__main__':
             unsafe_allow_html=True,
         )
 
-    # User input section
-    user_input = st.text_input(
-        "Type your message here...", 
-        key="chat_input", 
-        on_change=lambda: st.session_state.update({"input_submitted": True}),
-    )
+    # Chat input section - keeping input field static at the bottom
+    user_input = st.chat_input("Type your message here...")
 
-    if st.button("Send"):
-        if user_input:
-            st.session_state["messages"].append(("user", user_input))
-            # Stream messages through the graph and get responses
-            events = graph.stream({"messages": st.session_state["messages"]}, {"configurable": {"thread_id": "1"}}, stream_mode="values")
+    if user_input:
+        st.session_state["messages"].append(("user", user_input))
+        # Stream messages through the graph and get responses
+        events = graph.stream({"messages": st.session_state["messages"]}, {"configurable": {"thread_id": "1"}}, stream_mode="values")
 
-            # Collect and combine responses
-            combined_response = ""
-            for event in events:
-                response = event["messages"][-1].content
-                print(f'event: {event}')
-                print(f"response: {response}")
-                if response.strip():
-                    combined_response += response + " "
+        # Collect and combine responses
+        combined_response = []
+        for event in events:
+            response = event["messages"][-1].content
+            if response.strip():
+                combined_response.append(response)
 
-            # Append the response to the conversation
-            if combined_response.strip():
-                st.session_state["messages"].append(("assistant", combined_response.strip()))
+        for event in events:
+            event["messages"][-1].pretty_print()
 
-    # Clear input after submission
-    if st.session_state.get("input_submitted"):
-        st.session_state["input_submitted"] = False
+        # Append the response to the conversation
+        if len(combined_response) > 0:
+            st.session_state["messages"].append(("assistant", combined_response[-1]))
+
+        # Rerun the app to clear the input after submission
         st.rerun()
