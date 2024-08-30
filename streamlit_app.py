@@ -77,24 +77,14 @@ st.markdown(
 )
 
 if __name__ == '__main__':
+    # Streamlit layout for conversation UI
+    st.title("AI Assistant Chatbot")
+
     # Initialize the embedding model
     embedding_model = HuggingFaceEmbeddings(
         model_name="thenlper/gte-small",
         model_kwargs={"device": "cpu"},
         encode_kwargs={"normalize_embeddings": True},
-    )
-
-    # Set up tools and retrievers
-    loader = PyPDFLoader("proposal.pdf")
-    docs = loader.load()
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=20)
-    documents = text_splitter.split_documents(docs)
-    db = FAISS.from_documents(documents, embedding_model)
-    retriever = db.as_retriever()
-    pdf_tool = create_retriever_tool(
-        retriever,
-        "pdf_search",
-        "Search for information about proposal of my research project. For any questions about my research project, you must use this tool!"
     )
 
     api_wrapper = WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=200)
@@ -103,10 +93,38 @@ if __name__ == '__main__':
     arxiv_wrapper = ArxivAPIWrapper(top_k_results=1, doc_content_chars_max=200)
     arxiv_tool = ArxivQueryRun(api_wrapper=arxiv_wrapper)
 
-    tools = [pdf_tool, arxiv_tool, wiki_tool]
+    # Add file uploader for the user to upload multiple PDF documents
+    uploaded_files = st.file_uploader("Upload your PDF documents", type=["pdf"], accept_multiple_files=True)
+
+    # Initialize an empty list to hold all documents
+    all_documents = []
+
+    # Check if a file is uploaded
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            # Load each uploaded file as a document
+            loader = PyPDFLoader(uploaded_file)
+            docs = loader.load()
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=20)
+            documents = text_splitter.split_documents(docs)
+            all_documents.extend(documents)
+
+        # Create FAISS database from all combined documents
+        db = FAISS.from_documents(all_documents, embedding_model)
+        retriever = db.as_retriever()
+        pdf_tool = create_retriever_tool(
+            retriever,
+            "pdf_search",
+            "Search for information about proposal of my research project. For any questions about my research project, you must use this tool!"
+        )
+        tools = [pdf_tool, arxiv_tool, wiki_tool]
+    else:
+        st.warning("Please upload a PDF document to continue.")
+        tools = [arxiv_tool, wiki_tool]  # Exclude PDF tool if no document is uploaded
+
 
     # Initialize the ChatGroq model with tools
-    llm = ChatGroq(groq_api_key=os.getenv('groq_api_key'), model_name="llama3-8b-8192")
+    llm = ChatGroq(groq_api_key=os.getenv('groq_api_key'), model_name="llama-3.1-70b-versatile")
     llm_with_tools = llm.bind_tools(tools)
 
     # Define chatbot function
@@ -128,9 +146,6 @@ if __name__ == '__main__':
         st.session_state["messages"] = []
     if "input_submitted" not in st.session_state:
         st.session_state["input_submitted"] = False
-
-    # Streamlit layout for conversation UI
-    st.title("AI Assistant Chatbot")
 
     # Display the conversation history
     for message in st.session_state["messages"]:
