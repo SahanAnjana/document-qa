@@ -15,6 +15,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 import os
 from dotenv import load_dotenv
 from langgraph.checkpoint.memory import MemorySaver
+import tempfile
 
 # Load environment variables
 load_dotenv()
@@ -83,7 +84,7 @@ if __name__ == '__main__':
     # Initialize the embedding model
     embedding_model = HuggingFaceEmbeddings(
         model_name="thenlper/gte-small",
-        model_kwargs={"device": "cpu"},
+        model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
         encode_kwargs={"normalize_embeddings": True},
     )
 
@@ -102,15 +103,21 @@ if __name__ == '__main__':
     # Check if a file is uploaded
     if uploaded_files:
         for uploaded_file in uploaded_files:
+            # Save uploaded file to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+                temp_file.write(uploaded_file.read())
+                temp_file_path = temp_file.name
+
             # Load each uploaded file as a document
-            loader = PyPDFLoader(uploaded_file)
+            loader = PyPDFLoader(temp_file_path)
             docs = loader.load()
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=20)
             documents = text_splitter.split_documents(docs)
+            all_documents.append(uploaded_file.name)
             all_documents.extend(documents)
 
         # Create FAISS database from all combined documents
-        db = FAISS.from_documents(all_documents, embedding_model)
+        db = FAISS.from_documents(all_documents, embedding_model,)
         retriever = db.as_retriever()
         pdf_tool = create_retriever_tool(
             retriever,
