@@ -9,6 +9,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.tools.retriever import create_retriever_tool
 from langchain_community.utilities import WikipediaAPIWrapper, ArxivAPIWrapper
 from langchain_community.tools import WikipediaQueryRun, ArxivQueryRun
+# from langchain_community.tools.google_scholar import GoogleScholarQueryRun
+# from langchain_community.utilities.google_scholar import GoogleScholarAPIWrapper
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -94,6 +96,9 @@ if __name__ == '__main__':
     arxiv_wrapper = ArxivAPIWrapper(top_k_results=1, doc_content_chars_max=200)
     arxiv_tool = ArxivQueryRun(api_wrapper=arxiv_wrapper)
 
+    # gscholar_wrapper = GoogleScholarAPIWrapper(top_k_results=1, doc_content_chars_max=200)
+    # gscholar_tool = GoogleScholarQueryRun(api_wrapper=gscholar_wrapper)
+
     # Add file uploader for the user to upload multiple PDF documents
     uploaded_files = st.file_uploader("Upload your PDF documents", type=["pdf"], accept_multiple_files=True)
 
@@ -102,29 +107,31 @@ if __name__ == '__main__':
 
     # Check if a file is uploaded
     if uploaded_files:
-        for uploaded_file in uploaded_files:
-            # Save uploaded file to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-                temp_file.write(uploaded_file.read())
-                temp_file_path = temp_file.name
+        with st.spinner('Processing your Files...'):
+            for uploaded_file in uploaded_files:
+                # Save uploaded file to a temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+                    temp_file.write(uploaded_file.read())
+                    temp_file_path = temp_file.name
 
-            # Load each uploaded file as a document
-            loader = PyPDFLoader(temp_file_path)
-            docs = loader.load()
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=20)
-            documents = text_splitter.split_documents(docs)
-            all_documents.extend(documents)
+                # Load each uploaded file as a document
+                loader = PyPDFLoader(temp_file_path)
+                docs = loader.load()
+                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=20)
+                documents = text_splitter.split_documents(docs)
+                all_documents.extend(documents)
 
-        # Create FAISS database from all combined documents
-        db = FAISS.from_documents(all_documents, embedding_model,)
-        retriever = db.as_retriever()
-        pdf_tool = create_retriever_tool(
-            retriever,
-            "pdf_search",
-            "Search for information about the research proposal, papers, or topics related to the user's project. "
-            "Focus on guiding the user in their research tasks."
-        )
-        tools = [pdf_tool, arxiv_tool, wiki_tool]
+            # Create FAISS database from all combined documents
+            db = FAISS.from_documents(all_documents, embedding_model)
+            retriever = db.as_retriever()
+            pdf_tool = create_retriever_tool(
+                retriever,
+                "pdf_search",
+                "Search for information about the research proposal, papers, or topics related to the user's project. "
+                "Focus on guiding the user in their research tasks."
+            )
+            print("PDF tool initiated...")
+            tools = [pdf_tool, arxiv_tool, wiki_tool]
     else:
         st.warning("Please upload a PDF document to continue.")
         tools = [arxiv_tool, wiki_tool]  # Exclude PDF tool if no document is uploaded
@@ -136,12 +143,20 @@ if __name__ == '__main__':
 
     # Define chatbot function
     def chatbot(state: State):
-        system_prompt = (
+        system_message = (
             "You are an AI research supervisor. Your role is to provide guidance on research methodologies, "
             "offer suggestions for literature review, assist in formulating research questions, and provide feedback "
-            "on academic papers. Focus solely on supervising the research process, and avoid unrelated topics."
+            "on academic papers. Focus solely on supervising the research process, and avoid unrelated topics. "
+            "Do not use tools unless the query is specifically research-related or involves document search tasks."
         )
-        return {"messages": [llm_with_tools.invoke(state["messages"],system_prompt=system_prompt)]}
+
+        # Add system message to the start of the conversation
+        state["messages"].insert(0, ("system", system_message))
+
+        # Invoke the LLM with the conversation history
+        return {
+            "messages": [llm_with_tools.invoke(state["messages"])]
+        }
 
     # Build the state graph
     graph_builder.add_node("chatbot", chatbot)
@@ -171,23 +186,24 @@ if __name__ == '__main__':
     user_input = st.chat_input("Type your message here...")
 
     if user_input:
-        st.session_state["messages"].append(("user", user_input))
-        # Stream messages through the graph and get responses
-        events = graph.stream({"messages": st.session_state["messages"]}, {"configurable": {"thread_id": "1"}}, stream_mode="values")
+        with st.spinner('The assistant is processing your query...'):
+            st.session_state["messages"].append(("user", user_input))
+            # Stream messages through the graph and get responses
+            events = graph.stream({"messages": st.session_state["messages"]}, {"configurable": {"thread_id": "1"}}, stream_mode="values")
 
-        # Collect and combine responses
-        combined_response = []
-        for event in events:
-            response = event["messages"][-1].content
-            if response.strip():
-                combined_response.append(response)
+            # Collect and combine responses
+            combined_response = []
+            for event in events:
+                response = event["messages"][-1].content
+                if response.strip():
+                    combined_response.append(response)
 
-        for event in events:
-            event["messages"][-1].pretty_print()
+            # for event in events:
+            #     event["messages"][-1].pretty_print()
 
-        # Append the response to the conversation
-        if len(combined_response) > 0:
-            st.session_state["messages"].append(("assistant", combined_response[-1]))
+            # Append the response to the conversation
+            if len(combined_response) > 0:
+                st.session_state["messages"].append(("assistant", combined_response[-1]))
 
         # Rerun the app to clear the input after submission
         st.rerun()
